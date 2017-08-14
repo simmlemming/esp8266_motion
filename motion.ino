@@ -1,5 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <string.h>
 
 int greenLedPin = 14;
 int redLedPin = 4;
@@ -29,6 +30,9 @@ const int STATE_ALARM = 4;
 
 int state = STATE_INIT;
 
+unsigned long previousMillis = 0;
+const long sendIntervalMillis = 1000;
+
 void setup() {
   delay(100);
   Serial.begin(115200);
@@ -43,7 +47,7 @@ void setup() {
  ledOff();
 }
 
-void loop() {  
+void loop() {
   setup_wifi();
 
   if (wifi_connected) {
@@ -53,6 +57,7 @@ void loop() {
   if (state != STATE_OFF) {
     pirValue = digitalRead(pirPin);
     Serial.println(pirValue);
+    sendState(false);
   }
   
   client.loop();
@@ -63,6 +68,27 @@ void loop() {
 //  debugPrint();
 
   delay(500);
+}
+
+void sendState(boolean force) {
+  unsigned long currentMillis = millis();
+ 
+  if (!force && currentMillis - previousMillis < sendIntervalMillis) {
+    return;
+  }
+
+  previousMillis = currentMillis;   
+
+  char message[96] = {0};
+  char st[1];
+  dtostrf(state , 1, 0, st);
+  
+  strcat(message, "{\"state\" = ");
+  strcat(message, st);
+  strcat(message, "}");
+
+  Serial.println(message);
+  client.publish(outTopic, message);
 }
 
 void onNewMessage(char* topic, byte* payload, unsigned int length) {
@@ -81,6 +107,8 @@ void onNewMessage(char* topic, byte* payload, unsigned int length) {
     state = STATE_OFF;
   } else if (message == "on") {
     state = STATE_OK;
+  } else if (message == "state") {
+    sendState(true);
   }
 }
 
