@@ -12,9 +12,9 @@ const char* ssid = "Cloud_2";
 const char* ssid_password = "";
 
 const char* mqtt_server = "192.168.0.110";
-const char* clientID = "motion01";
-const char* outTopic = "motion01";
-const char* inTopic = "motion01_cmd";
+const char* clientID = "living/motion01";
+const char* outTopic = clientID;
+const char* inTopic = "living/motion01_cmd";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
