@@ -1,26 +1,20 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <string.h>
+#include <ArduinoJson.h>
 
-int greenLedPin = 14;
-int redLedPin = 4;
-int pirPin = 12; // Input for motion sensor
+// Devive identifiers
+const char* deviceName = "living_motion_01";
+const char* deviceType = "motion_sensor";
 
-int pirValue; // Place to store read PIR Value
-
+// Network
 const char* ssid = "Cloud_2";
 const char* ssid_password = "";
 
+// MQTT
 const char* mqtt_server = "192.168.0.110";
-const char* clientID = "living/motion01";
-const char* outTopic = clientID;
-const char* inTopic = "living/motion01_cmd";
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-boolean wifi_connecting = false, wifi_connected = false, wifi_error = false;
-boolean mqtt_connecting = false, mqtt_connected = false, mqtt_error = false;
+const char* outTopic = "home/out";
+const char* inTopic = "home/in";
+const char* debugTopic = "home/debug";
 
 const int STATE_OFF = 0;
 const int STATE_OK = 1;
@@ -29,9 +23,29 @@ const int STATE_ERROR = 3;
 const int STATE_ALARM = 4;
 
 int state = STATE_INIT;
+int lastReportedState = STATE_OFF;
+boolean forceSendStateOnNextLoop = false;
 
-unsigned long previousMillis = 0;
-const long sendIntervalMillis = 1000;
+const char* CMD_STATE = "state";
+const char* CMD_ON = "on";
+const char* CMD_OFF = "off";
+const char* CMD_RESET = "reset";
+
+const char* NAME_ALL = "all";
+
+int greenLedPin = 14;
+int redLedPin = 4;
+int pirPin = 12; // Input for motion sensor
+int pirValue; // Place to store read PIR Value
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+boolean wifi_connecting = false, wifi_connected = false, wifi_error = false;
+boolean mqtt_connecting = false, mqtt_connected = false, mqtt_error = false;
+
+DynamicJsonBuffer jsonBuffer;
+char jsonMessageBuffer[256];
 
 void setup() {
   delay(100);
@@ -56,8 +70,12 @@ void loop() {
 
   if (state != STATE_OFF) {
     pirValue = digitalRead(pirPin);
-    Serial.println(pirValue);
-    sendState(false);
+  }
+
+  if (state != lastReportedState || forceSendStateOnNextLoop) {
+    sendState();
+    lastReportedState = state;
+    forceSendStateOnNextLoop = false;
   }
   
   client.loop();
@@ -67,48 +85,54 @@ void loop() {
 
 //  debugPrint();
 
-  delay(500);
+  delay(250);
 }
 
-void sendState(boolean force) {
-  unsigned long currentMillis = millis();
- 
-  if (!force && currentMillis - previousMillis < sendIntervalMillis) {
-    return;
-  }
-
-  previousMillis = currentMillis;   
-
-  char message[96] = {0};
-  char st[1];
-  dtostrf(state , 1, 0, st);
+void sendState() {
+  JsonObject& root = jsonBuffer.createObject();
+  root["name"] = deviceName;
+  root["type"] = deviceType;
+  root["state"] = state;  
   
-  strcat(message, "{\"state\" = ");
-  strcat(message, st);
-  strcat(message, "}");
-
-  Serial.println(message);
-  client.publish(outTopic, message);
+  root.printTo(jsonMessageBuffer, sizeof(jsonMessageBuffer));
+  
+//  Serial.print("--> ");
+//  Serial.println(jsonMessageBuffer);
+  client.publish(outTopic, jsonMessageBuffer);
 }
 
 void onNewMessage(char* topic, byte* payload, unsigned int length) {
-  // Conver the incoming byte array to a string
-  payload[length] = '\0'; // Null terminator used to terminate the char array
-  String message = (char*)payload;
+  JsonObject& message = jsonBuffer.parseObject(payload);
 
-  Serial.print("Message arrived on topic: [");
-  Serial.print(topic);
-  Serial.print("], ");
-  Serial.println(message);
+  if (!message.success())
+  {
+    client.publish(debugTopic, deviceName);
+    client.publish(debugTopic, "cannot parse message");
+//    Serial.println("cannot parse message");
+    return;
+  }
 
-  if (message == "reset") {
+//  message.printTo(jsonMessageBuffer, sizeof(jsonMessageBuffer));  
+//  Serial.print("<-- ");
+//  Serial.println(jsonMessageBuffer);
+
+  const char* messageName = message["name"];
+  if (!eq(messageName, deviceName) && !eq(messageName, NAME_ALL)) {
+    return;
+  }
+
+  const char* messageCmd = message["cmd"];
+  if (eq(messageCmd, CMD_STATE)) {
+    forceSendStateOnNextLoop = true;
+  } else if (eq(messageCmd, CMD_ON)) {
     state = STATE_OK;
-  } else if (message == "off") {
+    forceSendStateOnNextLoop = true;
+  } else if (eq(messageCmd, CMD_OFF)) {
     state = STATE_OFF;
-  } else if (message == "on") {
+    forceSendStateOnNextLoop = true;
+  } else if (eq(messageCmd, CMD_RESET)) {
     state = STATE_OK;
-  } else if (message == "state") {
-    sendState(true);
+    forceSendStateOnNextLoop = true;
   }
 }
 
@@ -145,7 +169,7 @@ void setup_mqtt() {
   if (!mqtt_connecting) {
     mqtt_connecting = true;
 
-    if (client.connect(clientID)) {
+    if (client.connect(deviceName)) {
       mqtt_error = false;
       mqtt_connecting = false;
       mqtt_connected = true;
@@ -216,6 +240,10 @@ void updateLed() {
   }
   
   ledGreen();
+}
+
+boolean eq(const char* a1, const char* a2) {
+  return strcmp(a1, a2) == 0;
 }
 
 void debugPrint() {
