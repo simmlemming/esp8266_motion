@@ -3,7 +3,8 @@
 #include <ArduinoJson.h>
 
 // Devive identifiers
-const char* deviceName = "living_motion_01";
+const char* deviceName = "motion_01";
+const char* roomName = "living_room";
 const char* deviceType = "motion_sensor";
 
 // Network
@@ -91,6 +92,7 @@ void loop() {
 void sendState() {
   JsonObject& root = jsonBuffer.createObject();
   root["name"] = deviceName;
+  root["room"] = roomName;
   root["type"] = deviceType;
   root["state"] = state;  
   
