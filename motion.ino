@@ -3,12 +3,12 @@
 #include <ArduinoJson.h>
 
 // Devive identifiers
-const char* deviceName = "motion_01";
+const char* deviceName = "motion_sensor_01";
 const char* roomName = "living_room";
 const char* deviceType = "motion_sensor";
 
 // Network
-const char* ssid = "Cloud_2";
+const char* ssid = "Cloud";
 const char* ssid_password = "";
 
 // MQTT
@@ -44,6 +44,8 @@ PubSubClient client(espClient);
 
 boolean wifi_connecting = false, wifi_connected = false, wifi_error = false;
 boolean mqtt_connecting = false, mqtt_connected = false, mqtt_error = false;
+long wifiStrength = 0;
+long lastReportedWifiStrength = 0;
 
 DynamicJsonBuffer jsonBuffer;
 char jsonMessageBuffer[256];
@@ -73,9 +75,10 @@ void loop() {
     pirValue = digitalRead(pirPin);
   }
 
-  if (state != lastReportedState || forceSendStateOnNextLoop) {
+  if (state != lastReportedState || abs(lastReportedWifiStrength - wifiStrength) > 3 || forceSendStateOnNextLoop) {
     sendState();
     lastReportedState = state;
+    lastReportedWifiStrength = wifiStrength;
     forceSendStateOnNextLoop = false;
   }
   
@@ -94,6 +97,8 @@ void sendState() {
   root["name"] = deviceName;
   root["room"] = roomName;
   root["type"] = deviceType;
+  root["signal"] = wifiStrength;
+
   root["state"] = state;  
   
   root.printTo(jsonMessageBuffer, sizeof(jsonMessageBuffer));
@@ -139,6 +144,12 @@ void onNewMessage(char* topic, byte* payload, unsigned int length) {
 }
 
 void updateState() {
+  if (wifi_connected) {
+    wifiStrength = WiFi.RSSI();
+  } else {
+    wifiStrength = 0;
+  }
+
   if (state == STATE_OFF) {
     return;
   }
