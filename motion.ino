@@ -47,9 +47,6 @@ boolean mqtt_connecting = false, mqtt_connected = false, mqtt_error = false;
 long wifiStrength = 0;
 long lastReportedWifiStrength = 0;
 
-DynamicJsonBuffer jsonBuffer;
-char jsonMessageBuffer[256];
-
 void setup() {
   delay(100);
   Serial.begin(115200);
@@ -93,6 +90,9 @@ void loop() {
 }
 
 void sendState() {
+  DynamicJsonBuffer jsonBuffer;
+  char jsonMessageBuffer[256];
+  
   JsonObject& root = jsonBuffer.createObject();
   root["name"] = deviceName;
   root["room"] = roomName;
@@ -109,6 +109,7 @@ void sendState() {
 }
 
 void onNewMessage(char* topic, byte* payload, unsigned int length) {
+  DynamicJsonBuffer jsonBuffer;
   JsonObject& message = jsonBuffer.parseObject(payload);
 
   if (!message.success())
@@ -119,6 +120,7 @@ void onNewMessage(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
+//  char jsonMessageBuffer[256];
 //  message.printTo(jsonMessageBuffer, sizeof(jsonMessageBuffer));  
 //  Serial.print("<-- ");
 //  Serial.println(jsonMessageBuffer);
