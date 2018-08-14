@@ -22,6 +22,8 @@ const int STATE_OK = 1;
 const int STATE_INIT = 2;
 const int STATE_ERROR = 3;
 const int STATE_ALARM = 4;
+const int STATE_ALARM_PENDING = 5;
+const int STATE_PAUSED = 6;
 
 int state = STATE_INIT;
 int lastReportedState = STATE_OFF;
@@ -31,6 +33,7 @@ const char* CMD_STATE = "state";
 const char* CMD_ON = "on";
 const char* CMD_OFF = "off";
 const char* CMD_RESET = "reset";
+const char* CMD_PAUSE = "pause";
 
 const char* NAME_ALL = "all";
 
@@ -46,6 +49,12 @@ boolean wifi_connecting = false, wifi_connected = false, wifi_error = false;
 boolean mqtt_connecting = false, mqtt_connected = false, mqtt_error = false;
 long wifiStrength = 0;
 long lastReportedWifiStrength = 0;
+
+const long DELAY_BEFORE_ALARM_MS = 30 * 1000; // 30 sec
+long alarmPendingStartMs = 0;
+
+long pauseStartMs = 0;
+long pauseDurationMs = 0;
 
 void setup() {
   delay(100);
@@ -142,6 +151,12 @@ void onNewMessage(char* topic, byte* payload, unsigned int length) {
   } else if (eq(messageCmd, CMD_RESET)) {
     state = STATE_OK;
     forceSendStateOnNextLoop = true;
+  } else if (eq(messageCmd, CMD_PAUSE)) {
+    state = STATE_PAUSED;
+    pauseStartMs = millis();
+    long pauseDurationSec = message["value"];
+    pauseDurationMs = pauseDurationSec * 1000;
+    forceSendStateOnNextLoop = true;
   }
 }
 
@@ -166,12 +181,30 @@ void updateState() {
     return;
   }
 
-  if (state == STATE_ALARM || pirValue) {
+  if (state == STATE_OK && pirValue) {
+    state = STATE_ALARM_PENDING;
+    alarmPendingStartMs = millis();
+    return;
+  }
+  
+  if (state == STATE_ALARM_PENDING && alarmPendingStartMs + DELAY_BEFORE_ALARM_MS < millis()) {
     state = STATE_ALARM;
     return;
   }
 
+  if (state == STATE_PAUSED && pauseStartMs + pauseDurationMs < millis()) {
+    state = STATE_OK;
+    return;
+  }
+
+  if (state == STATE_ALARM_PENDING || state == STATE_ALARM || state == STATE_PAUSED) {
+    return;
+  }
+  
   state = STATE_OK;
+  alarmPendingStartMs = 0;
+  pauseStartMs = 0;
+  pauseDurationMs = 0;
 }
 
 void setup_mqtt() {
@@ -230,6 +263,20 @@ void ledOff() {
 }
 
 void updateLed() {
+  if (state == STATE_ALARM_PENDING) {
+    ledGreen();
+    delay(250);
+    ledRed();
+    return;
+  }
+
+  if (state == STATE_PAUSED) {
+    ledGreen();
+    delay(250);
+    ledOff();
+    return;
+  }
+  
   if (state == STATE_ALARM) {
     ledRed();
     return;
@@ -284,5 +331,15 @@ void debugPrint() {
   
   Serial.print("mqtt error = ");
   Serial.println(mqtt_error);
+
+  Serial.print("alarmPendingStartMs = ");    
+  Serial.println(alarmPendingStartMs);
+  
+  Serial.print("alarmPendingStartMs + DELAY_BEFORE_ALARM_MS = ");    
+  Serial.println(alarmPendingStartMs + DELAY_BEFORE_ALARM_MS);
+
+  Serial.print("now = ");    
+  Serial.println(millis());
+
 }
 
